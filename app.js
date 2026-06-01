@@ -217,6 +217,8 @@ let seriesFilter = "";
 let tagFilter = "";
 let analysisScope = "current";
 let analysisFocus = "";
+let analysisSelectedSeriesId = "";
+let analysisSelectedIssueId = "";
 
 const els = {};
 
@@ -359,12 +361,17 @@ function bindEvents() {
   els.analysisScopeSelect.addEventListener("change", (event) => {
     analysisScope = event.target.value;
     analysisFocus = "";
+    analysisSelectedSeriesId = "";
+    analysisSelectedIssueId = "";
     renderAnalysis();
   });
   els.analysisFocusSelect.addEventListener("change", (event) => {
     analysisFocus = event.target.value;
+    analysisSelectedSeriesId = event.target.value;
+    analysisSelectedIssueId = "";
     renderAnalysis();
   });
+  els.analysisRanking.addEventListener("click", handleAnalysisRankingClick);
 
   els.createNextIssueButton.addEventListener("click", createNextIssue);
   els.exportButton.addEventListener("click", exportData);
@@ -602,6 +609,10 @@ function renderAnalysis() {
   if (analysisFocus && !seriesRows.some((series) => series.id === analysisFocus)) {
     analysisFocus = "";
   }
+  if (analysisSelectedSeriesId && !seriesRows.some((series) => series.id === analysisSelectedSeriesId)) {
+    analysisSelectedSeriesId = "";
+    analysisSelectedIssueId = "";
+  }
   els.analysisFocusSelect.innerHTML = [
     `<option value="">対象作品すべて</option>`,
     ...seriesRows.map((series) => `<option value="${series.id}">${escapeHtml(series.name)}</option>`),
@@ -609,6 +620,10 @@ function renderAnalysis() {
   els.analysisFocusSelect.value = analysisFocus;
 
   const displaySeries = analysisFocus ? seriesRows.filter((series) => series.id === analysisFocus) : seriesRows;
+  if (analysisSelectedSeriesId && !displaySeries.some((series) => series.id === analysisSelectedSeriesId)) {
+    analysisSelectedSeriesId = "";
+    analysisSelectedIssueId = "";
+  }
   const displayChapters = state.chapters.filter((chapter) => displaySeries.some((series) => series.id === chapter.seriesId));
 
   renderAnalysisRanking(displaySeries);
@@ -640,7 +655,7 @@ function renderAnalysisRanking(seriesRows) {
     const trendLabel = row.stats.trend > 0 ? `↑ ${row.stats.trend}` : row.stats.trend < 0 ? `↓ ${Math.abs(row.stats.trend)}` : "→";
     const trendClass = row.stats.trend > 0 ? "is-up" : row.stats.trend < 0 ? "is-down" : "";
     return `
-      <article class="ranking-row" style="--series-color:${row.series.color}">
+      <article class="ranking-row ${analysisSelectedSeriesId === row.series.id ? "is-selected" : ""}" style="--series-color:${row.series.color}" data-series-id="${row.series.id}">
         <strong>${index + 1}</strong>
         <div>
           <h3>${escapeHtml(row.series.name)}</h3>
@@ -652,12 +667,20 @@ function renderAnalysisRanking(seriesRows) {
   }).join("") || `<div class="empty-state">比較できる掲載順データがありません</div>`;
 }
 
+function handleAnalysisRankingClick(event) {
+  const row = event.target.closest(".ranking-row[data-series-id]");
+  if (!row) return;
+  selectAnalysisSeries(row.dataset.seriesId);
+}
+
 function renderOrderComparison(seriesRows) {
   const issues = sortedIssues().slice().reverse();
   if (!seriesRows.length || !issues.length) {
+    els.orderComparisonChart.classList.remove("has-selection", "is-hovering");
     els.orderComparisonChart.innerHTML = `<div class="empty-state">比較対象の作品がありません</div>`;
     return;
   }
+  els.orderComparisonChart.classList.toggle("has-selection", Boolean(analysisSelectedSeriesId));
 
   const maxOrder = Math.max(5, ...state.chapters.map((chapter) => Number(chapter.order) || 1));
   const width = 980;
@@ -668,8 +691,35 @@ function renderOrderComparison(seriesRows) {
   const xFor = (index) => pad.left + (issues.length === 1 ? plotWidth / 2 : (plotWidth / (issues.length - 1)) * index);
   const yFor = (order) => pad.top + ((Number(order) - 1) / Math.max(1, maxOrder - 1)) * plotHeight;
   const yTicks = [...new Set([1, 3, 5, 10, maxOrder].filter((tick) => tick <= maxOrder))];
+  const chartDefs = `
+    <defs>
+      <filter id="rankLineGlow" x="-20%" y="-40%" width="140%" height="180%">
+        <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#fffdf9" flood-opacity="0.92" />
+        <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#15191d" flood-opacity="0.22" />
+      </filter>
+    </defs>
+  `;
+  const rankBands = [
+    { start: 1, end: Math.min(3, maxOrder), className: "top-band" },
+    { start: 4, end: Math.min(10, maxOrder), className: "middle-band" },
+    { start: 15, end: maxOrder, className: "danger-band" },
+  ]
+    .filter((band) => band.start <= band.end)
+    .map((band) => {
+      const y = yFor(band.start);
+      const height = Math.max(10, yFor(band.end) - y + 12);
+      return `<rect x="${pad.left}" y="${y - 6}" width="${plotWidth}" height="${height}" class="rank-band ${band.className}" />`;
+    })
+    .join("");
 
   const grid = [
+    rankBands,
+    ...issues.map((issue, index) => {
+      const previousX = index === 0 ? pad.left : (xFor(index - 1) + xFor(index)) / 2;
+      const nextX = index === issues.length - 1 ? pad.left + plotWidth : (xFor(index) + xFor(index + 1)) / 2;
+      const isSelectedIssue = analysisSelectedIssueId === issue.id;
+      return `<rect x="${previousX}" y="${pad.top}" width="${nextX - previousX}" height="${plotHeight}" class="rank-issue-hit ${isSelectedIssue ? "is-selected" : ""}" data-issue-id="${issue.id}" />`;
+    }),
     ...yTicks.map((tick) => `
       <g>
         <line x1="${pad.left}" y1="${yFor(tick)}" x2="${width - pad.right}" y2="${yFor(tick)}" class="rank-grid-line" />
@@ -684,41 +734,56 @@ function renderOrderComparison(seriesRows) {
     `),
   ].join("");
 
-  const latestLabelIds = new Set(
-    seriesRows
-      .map((series) => {
-        const latestChapter = [...issues].reverse()
-          .map((issue) => state.chapters.find((item) => item.issueId === issue.id && item.seriesId === series.id))
-          .find((chapter) => chapter && !isHiatus(chapter));
-        return { series, order: Number(latestChapter?.order) || 999 };
-      })
-      .sort((a, b) => a.order - b.order)
-      .slice(0, analysisFocus ? 20 : 5)
-      .map((row) => row.series.id)
-  );
-
-  const seriesLines = seriesRows.map((series) => {
+  const seriesPointMap = new Map(seriesRows.map((series) => {
     const points = issues.map((issue, index) => {
       const chapter = state.chapters.find((item) => item.issueId === issue.id && item.seriesId === series.id);
       if (!chapter || isHiatus(chapter)) return null;
       return { x: xFor(index), y: yFor(chapter.order), chapter };
     }).filter(Boolean);
+    return [series.id, points];
+  }));
+  const latestRows = seriesRows
+    .map((series) => {
+      const points = seriesPointMap.get(series.id) || [];
+      const latest = points[points.length - 1];
+      return { series, latest, order: Number(latest?.chapter?.order) || 999 };
+    })
+    .filter((row) => row.latest);
+  const latestLabelIds = new Set(
+    latestRows
+      .sort((a, b) => a.order - b.order)
+      .slice(0, analysisFocus ? 20 : 5)
+      .map((row) => row.series.id)
+  );
+  const latestLabelPositions = staggerLatestLabels(
+    latestRows.filter((row) => latestLabelIds.has(row.series.id)),
+    pad.top,
+    pad.top + plotHeight
+  );
+
+  const seriesLines = seriesRows.map((series) => {
+    const points = seriesPointMap.get(series.id) || [];
     if (!points.length) return "";
-    const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
+    const isSelectedSeries = analysisSelectedSeriesId === series.id;
+    const linePath = smoothRankPath(points);
     const circles = points.map((point) => {
       const tags = (point.chapter.tags || []).filter((tag) => !["巻頭カラー", "センターカラー"].includes(tag));
-      return `<circle class="rank-point" cx="${point.x}" cy="${point.y}" r="5.5" fill="${series.color}" data-series="${escapeHtml(series.name)}" data-issue="${escapeHtml(issueShortLabel(findIssue(point.chapter.issueId)))}" data-order="${point.chapter.order}" data-tags="${escapeHtml(JSON.stringify(tags))}" data-summary="${escapeHtml(point.chapter.summary || "未記録")}" />`;
+      const isSelectedPoint = analysisSelectedSeriesId === series.id && analysisSelectedIssueId === point.chapter.issueId;
+      return `<circle class="rank-point ${isSelectedPoint ? "is-selected" : ""}" cx="${point.x}" cy="${point.y}" r="5.5" fill="${series.color}" data-series-id="${series.id}" data-issue-id="${point.chapter.issueId}" data-color="${series.color}" data-series="${escapeHtml(series.name)}" data-issue="${escapeHtml(issueShortLabel(findIssue(point.chapter.issueId)))}" data-order="${point.chapter.order}" data-tags="${escapeHtml(JSON.stringify(tags))}" data-summary="${escapeHtml(point.chapter.summary || "未記録")}" />`;
     }).join("");
     const latest = points[points.length - 1];
+    const labelY = latestLabelPositions.get(series.id) || latest.y - 15;
     const latestLabel = latestLabelIds.has(series.id) ? `
         <g class="latest-label">
-          <rect x="${latest.x + 10}" y="${latest.y - 15}" width="150" height="30" rx="4" fill="${series.color}" />
-          <text x="${latest.x + 20}" y="${latest.y + 5}">${escapeHtml(series.name)}: ${latest.chapter.order}位</text>
+          <line x1="${latest.x + 2}" y1="${latest.y}" x2="${latest.x + 10}" y2="${labelY + 15}" stroke="${series.color}" stroke-width="2" />
+          <rect x="${latest.x + 10}" y="${labelY}" width="150" height="30" rx="4" fill="${series.color}" />
+          <text x="${latest.x + 20}" y="${labelY + 20}">${escapeHtml(series.name)}: ${latest.chapter.order}位</text>
         </g>
     ` : "";
     return `
-      <g>
-        <polyline points="${linePoints}" fill="none" stroke="${series.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <g class="series-line-group ${isSelectedSeries ? "is-selected" : ""}" data-series-id="${series.id}" style="--series-color:${series.color}">
+        <path class="rank-line-halo" d="${linePath}" pathLength="1" fill="none" stroke="${series.color}" />
+        <path class="rank-line" d="${linePath}" pathLength="1" fill="none" stroke="${series.color}" />
         ${circles}
         ${latestLabel}
       </g>
@@ -733,12 +798,14 @@ function renderOrderComparison(seriesRows) {
   `;
 
   const legend = seriesRows.map((series) => `
-    <span><i style="background:${series.color}"></i>${escapeHtml(series.name)}</span>
+    <span class="${analysisSelectedSeriesId === series.id ? "is-selected" : ""}" data-series-id="${series.id}" style="--series-color:${series.color}"><i style="background:${series.color}"></i>${escapeHtml(series.name)}</span>
   `).join("");
 
   els.orderComparisonChart.innerHTML = `
+    ${renderAnalysisInspector(displayAnalysisSelection(seriesRows, issues))}
     <div class="rank-chart-scroll">
       <svg class="rank-line-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="掲載順の折れ線グラフ">
+        ${chartDefs}
         ${grid}
         ${latestGuide}
         ${seriesLines}
@@ -749,6 +816,116 @@ function renderOrderComparison(seriesRows) {
     ${renderOrderTable(seriesRows, issues)}
   `;
   bindRankTooltip();
+}
+
+function displayAnalysisSelection(seriesRows, issues) {
+  if (!analysisSelectedSeriesId) return null;
+  const series = seriesRows.find((item) => item.id === analysisSelectedSeriesId);
+  if (!series) return null;
+  const chapters = chaptersForSeries(series.id)
+    .filter((chapter) => issues.some((issue) => issue.id === chapter.issueId))
+    .sort((a, b) => issueSortValue(findIssue(a.issueId)) - issueSortValue(findIssue(b.issueId)));
+  const fallbackChapter = chapters[chapters.length - 1] || null;
+  const issue = analysisSelectedIssueId
+    ? issues.find((item) => item.id === analysisSelectedIssueId)
+    : fallbackChapter ? findIssue(fallbackChapter.issueId) : issues[issues.length - 1];
+  const selectedChapter = issue
+    ? chapters.find((chapter) => chapter.issueId === issue.id) || null
+    : fallbackChapter;
+  return {
+    series,
+    issue,
+    chapter: selectedChapter && selectedChapter.issueId === issue?.id ? selectedChapter : null,
+    stats: orderStats(series.id),
+  };
+}
+
+function renderAnalysisInspector(selection) {
+  if (!selection) {
+    return `
+      <section class="analysis-inspector is-empty">
+        <div>
+          <p>Focus mode</p>
+          <h3>作品を選ぶと、週ごとのログを追えます</h3>
+        </div>
+        <span>グラフの点・凡例・ランキング行から選択</span>
+      </section>
+    `;
+  }
+
+  const { series, issue, chapter, stats } = selection;
+  const tags = chapter?.tags?.length
+    ? chapter.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")
+    : `<span class="tag">未分類</span>`;
+  return `
+    <section class="analysis-inspector" style="--series-color:${series.color}">
+      <div class="inspector-title">
+        <span class="series-mark"></span>
+        <div>
+          <p>${escapeHtml(issueShortLabel(issue))}</p>
+          <h3>${escapeHtml(series.name)}</h3>
+        </div>
+      </div>
+      <div class="inspector-metrics">
+        <strong>${chapter ? `${chapter.order}位` : "-"}</strong>
+        <span>最新 ${stats.latest || "-"}位 / 平均 ${stats.avg ? stats.avg.toFixed(1) : "-"}</span>
+      </div>
+      <div class="inspector-tags">${tags}</div>
+      <p class="inspector-summary">${escapeHtml(chapter?.summary || "この号の掲載ログはまだありません。")}</p>
+    </section>
+  `;
+}
+
+function selectAnalysisSeries(seriesId, issueId = "") {
+  if (!seriesId) return;
+  analysisSelectedSeriesId = seriesId;
+  analysisSelectedIssueId = issueId || latestIssueIdForSeries(seriesId) || "";
+  renderAnalysis();
+}
+
+function latestIssueIdForSeries(seriesId) {
+  const chapter = chaptersForSeries(seriesId)
+    .filter((item) => !isHiatus(item))
+    .sort((a, b) => issueSortValue(findIssue(b.issueId)) - issueSortValue(findIssue(a.issueId)))[0];
+  return chapter?.issueId || "";
+}
+
+function smoothRankPath(points) {
+  if (points.length < 2) return points[0] ? `M ${points[0].x} ${points[0].y}` : "";
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const previous = points[index - 1] || current;
+    const after = points[index + 2] || next;
+    const controlOneX = current.x + (next.x - previous.x) / 6;
+    const controlOneY = current.y + (next.y - previous.y) / 6;
+    const controlTwoX = next.x - (after.x - current.x) / 6;
+    const controlTwoY = next.y - (after.y - current.y) / 6;
+    path += ` C ${controlOneX.toFixed(1)} ${controlOneY.toFixed(1)}, ${controlTwoX.toFixed(1)} ${controlTwoY.toFixed(1)}, ${next.x} ${next.y}`;
+  }
+  return path;
+}
+
+function staggerLatestLabels(rows, minY, maxY) {
+  const labelHeight = 30;
+  const gap = 5;
+  const positions = new Map();
+  const sorted = [...rows]
+    .map((row) => ({ ...row, targetY: row.latest.y - labelHeight / 2 }))
+    .sort((a, b) => a.targetY - b.targetY);
+  let cursor = minY;
+  const placed = sorted.map((row) => {
+    const y = Math.max(cursor, Math.min(row.targetY, maxY - labelHeight));
+    cursor = y + labelHeight + gap;
+    return { ...row, y };
+  });
+  const overflow = placed.length ? placed[placed.length - 1].y + labelHeight - maxY : 0;
+  const shift = Math.max(0, overflow);
+  placed.forEach((row) => {
+    positions.set(row.series.id, Math.max(minY, row.y - shift));
+  });
+  return positions;
 }
 
 function renderOrderTable(seriesRows, issues) {
@@ -788,27 +965,66 @@ function renderOrderTable(seriesRows, issues) {
 }
 
 function bindRankTooltip() {
+  const scroller = els.orderComparisonChart.querySelector(".rank-chart-scroll");
   const tooltip = els.orderComparisonChart.querySelector("#rankTooltip");
-  if (!tooltip) return;
+  if (!tooltip || !scroller) return;
+
+  const setActiveSeries = (seriesId) => {
+    els.orderComparisonChart.classList.add("is-hovering");
+    els.orderComparisonChart.querySelectorAll(".series-line-group, .rank-legend span").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.seriesId === seriesId);
+    });
+  };
+  const clearActiveSeries = () => {
+    els.orderComparisonChart.classList.remove("is-hovering");
+    els.orderComparisonChart.querySelectorAll(".series-line-group, .rank-legend span").forEach((item) => {
+      item.classList.remove("is-active");
+    });
+  };
+
   els.orderComparisonChart.querySelectorAll(".rank-point").forEach((point) => {
+    point.addEventListener("click", () => {
+      selectAnalysisSeries(point.dataset.seriesId, point.dataset.issueId);
+    });
     point.addEventListener("mouseenter", () => {
+      setActiveSeries(point.dataset.seriesId);
       tooltip.hidden = false;
+      tooltip.style.setProperty("--series-color", point.dataset.color || "#d54435");
       const tags = parseTooltipTags(point.dataset.tags);
       tooltip.innerHTML = `
-        <strong>${escapeHtml(point.dataset.series || "")} ${escapeHtml(point.dataset.issue || "")}</strong>
-        <span>${escapeHtml(point.dataset.order || "-")}位</span>
+        <div class="tooltip-head">
+          <strong>${escapeHtml(point.dataset.series || "")}</strong>
+          <span>${escapeHtml(point.dataset.issue || "")}</span>
+        </div>
+        <div class="tooltip-rank">${escapeHtml(point.dataset.order || "-")}位</div>
         <div class="tooltip-tags">${tags.length ? tags.map((tag) => `<b>${escapeHtml(tag)}</b>`).join("") : "<b>未分類</b>"}</div>
         <p>${escapeHtml(point.dataset.summary || "")}</p>
       `;
     });
     point.addEventListener("mousemove", (event) => {
-      const rect = els.orderComparisonChart.querySelector(".rank-chart-scroll").getBoundingClientRect();
-      tooltip.style.left = `${event.clientX - rect.left + 14}px`;
-      tooltip.style.top = `${event.clientY - rect.top + 14}px`;
+      const rect = scroller.getBoundingClientRect();
+      const nextLeft = event.clientX - rect.left + scroller.scrollLeft + 16;
+      const nextTop = event.clientY - rect.top + scroller.scrollTop + 16;
+      const maxLeft = scroller.scrollLeft + scroller.clientWidth - tooltip.offsetWidth - 12;
+      const maxTop = scroller.scrollTop + scroller.clientHeight - tooltip.offsetHeight - 12;
+      tooltip.style.left = `${Math.max(scroller.scrollLeft + 12, Math.min(nextLeft, maxLeft))}px`;
+      tooltip.style.top = `${Math.max(scroller.scrollTop + 12, Math.min(nextTop, maxTop))}px`;
     });
     point.addEventListener("mouseleave", () => {
       tooltip.hidden = true;
+      clearActiveSeries();
     });
+  });
+  els.orderComparisonChart.querySelectorAll(".rank-issue-hit").forEach((column) => {
+    column.addEventListener("click", () => {
+      if (!analysisSelectedSeriesId) return;
+      selectAnalysisSeries(analysisSelectedSeriesId, column.dataset.issueId);
+    });
+  });
+  els.orderComparisonChart.querySelectorAll(".rank-legend span").forEach((item) => {
+    item.addEventListener("click", () => selectAnalysisSeries(item.dataset.seriesId));
+    item.addEventListener("mouseenter", () => setActiveSeries(item.dataset.seriesId));
+    item.addEventListener("mouseleave", clearActiveSeries);
   });
 }
 
