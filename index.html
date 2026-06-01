@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manga Issue Log</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="desktop-stage">
+      <div class="app-frame">
+        <header class="app-header">
+          <div>
+            <p class="header-kicker">Weekly Manga Database</p>
+            <h1>Manga Issue Log</h1>
+          </div>
+          <button class="icon-button" id="quickExportButton" title="JSONを書き出す" aria-label="JSONを書き出す">↓</button>
+        </header>
+
+        <main class="app-main">
+          <section class="screen is-active" id="screen-current" aria-label="今週号">
+            <div class="issue-hero" id="currentIssueHero"></div>
+            <div class="metric-grid">
+              <div class="metric-card">
+                <span>掲載作品</span>
+                <strong id="metricSeries">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>記録済み</span>
+                <strong id="metricLogged">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>平均評価</span>
+                <strong id="metricAverage">-</strong>
+              </div>
+            </div>
+            <div class="completion-card">
+              <div>
+                <span>今週号コンプリート</span>
+                <strong id="completionText">0%</strong>
+              </div>
+              <div class="completion-track"><div id="completionBar"></div></div>
+            </div>
+
+            <section class="panel toc-panel">
+              <div class="section-title">
+                <div>
+                  <p>Table of contents</p>
+                  <h2>掲載順</h2>
+                </div>
+                <div class="section-actions">
+                  <button class="small-button" id="previousIssueButton" type="button">先週</button>
+                  <button class="small-button" id="nextIssueButton" type="button">次号</button>
+                  <button class="small-button" id="openAddSeriesButton" type="button">作品追加</button>
+                  <span class="pill" id="currentIssueCount">0本</span>
+                </div>
+              </div>
+              <div class="toc-hint">作品カードをドラッグすると掲載順を入れ替えられます。クリックするとログ入力を開きます。</div>
+              <div class="toc-list" id="tocList"></div>
+            </section>
+          </section>
+
+          <section class="screen" id="screen-series" aria-label="作品一覧">
+            <div class="screen-heading">
+              <p>Series master</p>
+              <h2>作品一覧</h2>
+            </div>
+            <div class="search-box">
+              <input id="seriesSearchInput" type="search" placeholder="作品名・作者で検索" />
+            </div>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Add series</p>
+                  <h2>作品を追加</h2>
+                </div>
+              </div>
+              <form id="seriesForm" class="series-form">
+                <div class="form-row">
+                  <label>
+                    <span>作品名</span>
+                    <input name="name" type="text" placeholder="作品名" required />
+                  </label>
+                  <label>
+                    <span>作者</span>
+                    <input name="author" type="text" placeholder="作者名" />
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>
+                    <span>状態</span>
+                    <select name="status">
+                      <option value="新連載">新連載</option>
+                      <option value="連載中">連載中</option>
+                      <option value="読切">読切</option>
+                      <option value="連載終了">連載終了</option>
+                    </select>
+                  </label>
+                  <label class="toggle-row inline-toggle">
+                    <input name="addToCurrentIssue" type="checkbox" checked />
+                    <span>今の号に追加</span>
+                  </label>
+                </div>
+                <button class="secondary-button" type="submit">作品を追加</button>
+              </form>
+            </section>
+            <div class="series-list" id="seriesList"></div>
+          </section>
+
+          <section class="screen" id="screen-series-detail" aria-label="作品詳細">
+            <button class="ghost-button back-button" id="backToSeriesButton">← 作品一覧へ</button>
+            <div class="series-detail-hero" id="seriesDetailHero"></div>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Series status</p>
+                  <h2>連載状態</h2>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>
+                  <span>状態</span>
+                  <select id="seriesStatusSelect">
+                    <option value="新連載">新連載</option>
+                    <option value="連載中">連載中</option>
+                    <option value="読切">読切</option>
+                    <option value="連載終了">連載終了</option>
+                  </select>
+                </label>
+                <button class="secondary-button" id="saveSeriesStatusButton" type="button">状態を保存</button>
+              </div>
+            </section>
+            <div class="series-detail-grid">
+              <section class="panel">
+                <div class="section-title">
+                  <div>
+                    <p>Score timeline</p>
+                    <h2>評価の推移</h2>
+                  </div>
+                </div>
+                <div class="mini-timeline" id="seriesScoreTimeline"></div>
+              </section>
+              <section class="panel">
+                <div class="section-title">
+                  <div>
+                    <p>Development map</p>
+                    <h2>展開タグ</h2>
+                  </div>
+                </div>
+                <div class="bar-list" id="seriesTagBars"></div>
+              </section>
+              <section class="panel full-span">
+                <div class="section-title">
+                  <div>
+                    <p>Story history</p>
+                    <h2>これまでのログ</h2>
+                  </div>
+                </div>
+                <div class="chapter-list" id="seriesHistoryList"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-logs" aria-label="掲載話ログ">
+            <div class="screen-heading">
+              <p>Chapter timeline</p>
+              <h2>掲載話ログ</h2>
+            </div>
+            <div class="filter-stack">
+              <input id="logSearchInput" type="search" placeholder="出来事、感想、反応、タグで検索" />
+              <div class="form-row">
+                <select id="seriesFilter"></select>
+                <select id="tagFilter"></select>
+              </div>
+            </div>
+            <div class="chapter-list" id="chapterList"></div>
+          </section>
+
+          <section class="screen" id="screen-analysis" aria-label="分析">
+            <div class="screen-heading">
+              <p>Reading analytics</p>
+              <h2>分析</h2>
+            </div>
+            <div class="analysis-controls">
+              <label>
+                <span>比較対象</span>
+                <select id="analysisScopeSelect">
+                  <option value="current">現在の連載陣</option>
+                  <option value="new">新連載</option>
+                  <option value="all">すべて</option>
+                </select>
+              </label>
+              <label>
+                <span>作品で絞る</span>
+                <select id="analysisFocusSelect"></select>
+              </label>
+            </div>
+            <div class="analysis-grid">
+              <section class="panel full-analysis">
+                <div class="section-title">
+                  <div>
+                    <p>Order ranking</p>
+                    <h2>掲載順ランキング</h2>
+                  </div>
+                </div>
+                <div class="ranking-list" id="analysisRanking"></div>
+              </section>
+              <section class="panel full-analysis">
+                <div class="section-title">
+                  <div>
+                    <p>Order comparison</p>
+                    <h2>掲載順比較</h2>
+                  </div>
+                </div>
+                <div class="comparison-chart" id="orderComparisonChart"></div>
+              </section>
+              <section class="panel full-analysis">
+                <div class="section-title">
+                  <div>
+                    <p>Tag summary</p>
+                    <h2>タグ集計</h2>
+                  </div>
+                </div>
+                <div class="bar-list" id="tagBars"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-settings" aria-label="設定とエクスポート">
+            <div class="screen-heading">
+              <p>Settings</p>
+              <h2>設定/エクスポート</h2>
+            </div>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Issue control</p>
+                  <h2>号の管理</h2>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="secondary-button" id="createNextIssueButton">次号を作成</button>
+              </div>
+              <div class="data-note" id="issueNote"></div>
+            </section>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Portable data</p>
+                  <h2>データ管理</h2>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="secondary-button" id="exportButton">JSONを書き出す</button>
+                <label class="secondary-button file-button">
+                  JSONを読み込む
+                  <input type="file" id="importInput" accept="application/json" />
+                </label>
+                <button class="danger-button" id="resetButton">仮データに戻す</button>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Issue seed</p>
+                  <h2>今回の仮データ</h2>
+                </div>
+              </div>
+              <div class="data-note" id="seedNote"></div>
+            </section>
+          </section>
+        </main>
+
+        <nav class="bottom-nav" aria-label="メイン画面">
+          <button class="nav-item is-active" data-screen="current"><span>◆</span>今週号</button>
+          <button class="nav-item" data-screen="series"><span>□</span>作品一覧</button>
+          <button class="nav-item" data-screen="logs"><span>≡</span>掲載話ログ</button>
+          <button class="nav-item" data-screen="analysis"><span>▥</span>分析</button>
+          <button class="nav-item" data-screen="settings"><span>⚙</span>設定</button>
+        </nav>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="logOverlay" hidden>
+      <section class="log-modal" role="dialog" aria-modal="true" aria-labelledby="logFormTitle">
+        <div class="modal-head">
+          <div>
+            <p>Chapter log</p>
+            <h2 id="logFormTitle">掲載話を記録</h2>
+          </div>
+          <button class="icon-close" id="closeLogButton" type="button" aria-label="閉じる">×</button>
+        </div>
+        <form id="chapterForm" class="log-form">
+          <div class="form-row">
+            <label>
+              <span>作品</span>
+              <select name="seriesId" id="chapterSeries" required></select>
+            </label>
+            <label>
+              <span>話数</span>
+              <input name="chapterNo" type="number" min="1" placeholder="話数" required />
+            </label>
+          </div>
+          <label>
+            <span>サブタイトル</span>
+            <input name="title" type="text" placeholder="任意" />
+          </label>
+          <label>
+            <span>起きたこと</span>
+            <textarea name="summary" rows="3" placeholder="世界説明、キャラ追加、ピンチ展開など"></textarea>
+          </label>
+          <div class="tag-picker" id="tagPicker"></div>
+          <div class="custom-tag-row">
+            <input id="customTagInput" type="text" placeholder="自作タグを追加" />
+            <button class="small-button" id="addCustomTagButton" type="button">追加</button>
+          </div>
+          <div class="form-row">
+            <label>
+              <span>反応トーン</span>
+              <select name="mood">
+                <option value="positive">好評</option>
+                <option value="surprise">驚き</option>
+                <option value="mixed">賛否</option>
+                <option value="concern">不安</option>
+                <option value="quiet">静か</option>
+              </select>
+            </label>
+            <label>
+              <span>自分の評価 <strong class="score-value" id="scoreValue">7/10</strong></span>
+              <input name="score" id="scoreInput" type="range" min="1" max="10" value="7" />
+            </label>
+          </div>
+          <label>
+            <span>世間の反応</span>
+            <textarea name="reaction" rows="2" placeholder="SNSや読者の温度感"></textarea>
+          </label>
+          <label>
+            <span>自分の感想</span>
+            <textarea name="myThought" rows="3" placeholder="好きだった点、引っかかった点、次号で見たいこと"></textarea>
+          </label>
+          <label>
+            <span>次の予想</span>
+            <textarea name="prediction" rows="2" placeholder="伏線、次号予想、長期的な読み"></textarea>
+          </label>
+          <button class="primary-button" type="submit" id="saveChapterButton">記録する</button>
+        </form>
+      </section>
+    </div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
