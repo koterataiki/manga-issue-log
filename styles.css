@@ -247,6 +247,13 @@ button {
   font-size: 12px;
 }
 
+.issue-title .issue-status-badge {
+  margin-left: 6px;
+  background: rgba(255, 253, 249, 0.18);
+  color: #fffdf9;
+  border: 1px solid rgba(255, 253, 249, 0.28);
+}
+
 .issue-title h2 {
   margin: 0;
   font-size: clamp(28px, 4vw, 46px);
@@ -358,6 +365,7 @@ button {
 .panel {
   padding: 16px;
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .section-title {
@@ -492,6 +500,49 @@ button {
   font-weight: 800;
 }
 
+.quick-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.quick-score-button {
+  min-width: 25px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 1000;
+  padding: 0 6px;
+}
+
+.quick-score-button:hover,
+.quick-score-button.is-selected {
+  border-color: var(--red);
+  background: var(--red);
+  color: #fffdf9;
+}
+
+.quick-score-disabled {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .toc-badges,
 .tag-row {
   display: flex;
@@ -511,6 +562,11 @@ button {
   color: #0a5e64;
   font-size: 12px;
   font-weight: 900;
+}
+
+.tag {
+  background: color-mix(in srgb, var(--tag-color, var(--teal)) 16%, #fffdf9);
+  color: color-mix(in srgb, var(--tag-color, var(--teal)) 72%, var(--ink));
 }
 
 .avg-chip {
@@ -619,9 +675,9 @@ button:focus-visible {
 }
 
 .check-chip:has(input:checked) {
-  border-color: var(--red);
-  background: #fff0ec;
-  color: var(--red-dark);
+  border-color: var(--tag-color, var(--red));
+  background: color-mix(in srgb, var(--tag-color, var(--red)) 14%, #fffdf9);
+  color: color-mix(in srgb, var(--tag-color, var(--red)) 74%, var(--ink));
 }
 
 .primary-button,
@@ -666,6 +722,12 @@ button:focus-visible {
 
 .small-button {
   padding: 7px 9px;
+}
+
+.small-button.is-active {
+  border-color: var(--red);
+  background: #fff0ec;
+  color: var(--red-dark);
 }
 
 .small-button:disabled {
@@ -790,7 +852,7 @@ button:focus-visible {
 
 .analysis-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 14px;
   padding: 14px;
@@ -841,11 +903,19 @@ button:focus-visible {
 }
 
 .series-detail-mark {
-  width: 46px;
-  height: 46px;
+  width: 74px;
+  height: 74px;
   flex: 0 0 auto;
   border-radius: 8px;
   border: 2px solid rgba(255, 253, 249, 0.62);
+  overflow: hidden;
+}
+
+.series-detail-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .series-detail-grid {
@@ -856,6 +926,115 @@ button:focus-visible {
 
 .series-detail-grid .full-span {
   grid-column: 1 / -1;
+}
+
+.series-settings-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.thumbnail-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.series-rank-chart {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.series-rank-scroll {
+  min-width: 760px;
+}
+
+.series-rank-svg {
+  display: block;
+  width: 100%;
+  min-height: 210px;
+}
+
+.series-rank-path {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.series-rank-order {
+  fill: var(--ink);
+  font-size: 11px;
+  font-weight: 1000;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: #fffdf9;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.series-rank-tag-strip {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.series-rank-tag-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.series-rank-tag-column strong,
+.series-rank-tag-column > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.series-rank-tag-column div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.series-rank-tag-column .tag {
+  min-height: 21px;
+  padding: 2px 5px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.series-tag-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tag-history-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.tag-history-row strong {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tag-history-row div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .back-button {
@@ -879,13 +1058,27 @@ button:focus-visible {
   min-width: 36px;
   height: 140px;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   align-items: end;
   justify-items: center;
-  gap: 7px;
+  gap: 5px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
+}
+
+.timeline-point strong {
+  align-self: start;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 11px;
 }
 
 .timeline-bar {
@@ -1524,12 +1717,17 @@ button:focus-visible {
 
 .settings-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
 .merge-control {
   margin: 14px 0 4px;
+}
+
+.issue-status-control {
+  margin: 12px 0;
+  max-width: 280px;
 }
 
 .toggle-row {
@@ -1573,6 +1771,70 @@ button:focus-visible {
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.crop-modal {
+  width: min(430px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.crop-viewport {
+  position: relative;
+  width: min(280px, 100%);
+  aspect-ratio: 1;
+  margin: 8px auto 16px;
+  overflow: hidden;
+  border-radius: 50%;
+  background:
+    linear-gradient(45deg, rgba(102, 112, 121, 0.14) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(102, 112, 121, 0.14) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(102, 112, 121, 0.14) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(102, 112, 121, 0.14) 75%),
+    #fffdf9;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-size: 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.crop-viewport:active {
+  cursor: grabbing;
+}
+
+.crop-viewport img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  user-select: none;
+  will-change: transform;
+}
+
+.crop-mask {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 253, 249, 0.92);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px rgba(21, 25, 29, 0.28),
+    0 0 0 999px rgba(21, 25, 29, 0.08);
+  pointer-events: none;
+}
+
+.crop-zoom {
+  margin-bottom: 14px;
+}
+
+.crop-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .modal-head {
@@ -1629,6 +1891,55 @@ button:focus-visible {
 .data-note {
   color: var(--muted);
   line-height: 1.75;
+}
+
+.tag-manager {
+  display: grid;
+  gap: 8px;
+}
+
+.tag-manager-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.tag-manager-row strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.tag-manager-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.tag-manager-row.is-locked {
+  background: var(--surface-soft);
+}
+
+.tag-color-input {
+  width: 44px;
+  height: 34px;
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.tag-manager-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.danger-mini {
+  color: var(--red-dark);
 }
 
 .model-list {
@@ -1768,6 +2079,14 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .thumbnail-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .crop-actions {
+    grid-template-columns: 1fr;
+  }
+
   .analysis-inspector.is-empty {
     grid-template-columns: 1fr;
   }
@@ -1777,6 +2096,14 @@ button:focus-visible {
   }
 
   .inspector-tags {
+    justify-content: flex-start;
+  }
+
+  .tag-manager-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tag-manager-actions {
     justify-content: flex-start;
   }
 }

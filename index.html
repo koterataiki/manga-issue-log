@@ -49,6 +49,7 @@
                   <h2>掲載順</h2>
                 </div>
                 <div class="section-actions">
+                  <button class="small-button" id="currentUnloggedToggle" type="button" aria-pressed="false">未記録のみ</button>
                   <button class="small-button" id="previousIssueButton" type="button">先週</button>
                   <button class="small-button" id="nextIssueButton" type="button">次号</button>
                   <button class="small-button" id="openAddSeriesButton" type="button">作品追加</button>
@@ -114,23 +115,41 @@
               <div class="section-title">
                 <div>
                   <p>Series status</p>
-                  <h2>連載状態</h2>
+                  <h2>作品設定</h2>
                 </div>
               </div>
-              <div class="form-row">
-                <label>
-                  <span>状態</span>
-                  <select id="seriesStatusSelect">
-                    <option value="新連載">新連載</option>
-                    <option value="連載中">連載中</option>
-                    <option value="読切">読切</option>
-                    <option value="連載終了">連載終了</option>
-                  </select>
-                </label>
-                <button class="secondary-button" id="saveSeriesStatusButton" type="button">状態を保存</button>
+              <div class="series-settings-grid">
+                <div class="form-row">
+                  <label>
+                    <span>状態</span>
+                    <select id="seriesStatusSelect">
+                      <option value="新連載">新連載</option>
+                      <option value="連載中">連載中</option>
+                      <option value="読切">読切</option>
+                      <option value="連載終了">連載終了</option>
+                    </select>
+                  </label>
+                  <button class="secondary-button" id="saveSeriesStatusButton" type="button">状態を保存</button>
+                </div>
+                <div class="thumbnail-controls">
+                  <label class="secondary-button file-button">
+                    サムネイル設定
+                    <input type="file" id="seriesThumbnailInput" accept="image/*" />
+                  </label>
+                  <button class="ghost-button" id="clearSeriesThumbnailButton" type="button">サムネイル削除</button>
+                </div>
               </div>
             </section>
             <div class="series-detail-grid">
+              <section class="panel full-span">
+                <div class="section-title">
+                  <div>
+                    <p>Order trend</p>
+                    <h2>掲載順の推移</h2>
+                  </div>
+                </div>
+                <div class="series-rank-chart" id="seriesRankChart"></div>
+              </section>
               <section class="panel">
                 <div class="section-title">
                   <div>
@@ -144,10 +163,11 @@
                 <div class="section-title">
                   <div>
                     <p>Development map</p>
-                    <h2>展開タグ</h2>
+                    <h2>タグ履歴</h2>
                   </div>
                 </div>
                 <div class="bar-list" id="seriesTagBars"></div>
+                <div class="series-tag-history" id="seriesTagHistory"></div>
               </section>
               <section class="panel full-span">
                 <div class="section-title">
@@ -193,6 +213,15 @@
               <label>
                 <span>作品で絞る</span>
                 <select id="analysisFocusSelect"></select>
+              </label>
+              <label>
+                <span>表示プリセット</span>
+                <select id="analysisPresetSelect">
+                  <option value="all">選択範囲すべて</option>
+                  <option value="top5">平均順位 上位5本</option>
+                  <option value="movers">変動が大きい作品</option>
+                  <option value="neighbors">選択作品の周辺</option>
+                </select>
               </label>
             </div>
             <div class="analysis-grid">
@@ -241,6 +270,16 @@
               <div class="settings-actions">
                 <button class="secondary-button" id="createNextIssueButton">次号を作成</button>
               </div>
+              <div class="issue-status-control">
+                <label>
+                  <span>現在の号の状態</span>
+                  <select id="issueStatusSelect">
+                    <option value="reading">読書中</option>
+                    <option value="logging">入力中</option>
+                    <option value="done">完了</option>
+                  </select>
+                </label>
+              </div>
               <div class="data-note" id="issueNote"></div>
             </section>
             <section class="panel">
@@ -252,12 +291,23 @@
               </div>
               <div class="settings-actions">
                 <button class="secondary-button" id="exportButton">JSONを書き出す</button>
+                <button class="secondary-button" id="exportMarkdownButton">今号レポート</button>
+                <button class="secondary-button" id="copyShareTextButton">共有文コピー</button>
                 <label class="secondary-button file-button">
                   JSONを読み込む
                   <input type="file" id="importInput" accept="application/json" />
                 </label>
                 <button class="danger-button" id="resetButton">仮データに戻す</button>
               </div>
+            </section>
+            <section class="panel">
+              <div class="section-title">
+                <div>
+                  <p>Tag library</p>
+                  <h2>タグ管理</h2>
+                </div>
+              </div>
+              <div class="tag-manager" id="tagManager"></div>
             </section>
             <section class="panel">
               <div class="section-title">
@@ -344,6 +394,30 @@
           </label>
           <button class="primary-button" type="submit" id="saveChapterButton">記録する</button>
         </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="thumbnailCropOverlay" hidden>
+      <section class="crop-modal" role="dialog" aria-modal="true" aria-labelledby="thumbnailCropTitle">
+        <div class="modal-head">
+          <div>
+            <p>Thumbnail crop</p>
+            <h2 id="thumbnailCropTitle">サムネイルの範囲を調整</h2>
+          </div>
+          <button class="icon-close" id="cancelThumbnailCropButton" type="button" aria-label="閉じる">×</button>
+        </div>
+        <div class="crop-viewport" id="thumbnailCropViewport">
+          <img id="thumbnailCropImage" alt="" draggable="false" />
+          <div class="crop-mask" aria-hidden="true"></div>
+        </div>
+        <label class="crop-zoom">
+          <span>ズーム</span>
+          <input id="thumbnailZoomInput" type="range" min="1" max="3" step="0.01" value="1" />
+        </label>
+        <div class="crop-actions">
+          <button class="ghost-button" id="resetThumbnailCropButton" type="button">中央に戻す</button>
+          <button class="primary-button" id="applyThumbnailCropButton" type="button">この範囲で保存</button>
+        </div>
       </section>
     </div>
 

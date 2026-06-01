@@ -22,6 +22,8 @@ const TAGS = [
   "センターカラー",
 ];
 
+const LOCKED_TAGS = ["巻頭カラー", "センターカラー", "休載"];
+
 const MOODS = {
   positive: "好評",
   surprise: "驚き",
@@ -31,6 +33,12 @@ const MOODS = {
 };
 
 const COLORS = ["#d54435", "#087a80", "#2564a9", "#b47a1c", "#52733a", "#7453a6", "#9f4f2c"];
+const TAG_COLORS = ["#d54435", "#087a80", "#2564a9", "#b47a1c", "#52733a", "#7453a6", "#cf5f8a", "#607d9a"];
+const ISSUE_STATUSES = {
+  reading: "読書中",
+  logging: "入力中",
+  done: "完了",
+};
 
 const fictionSeries = [
   { id: "series-stardust", name: "星屑スプリンター", author: "青井ハル", color: "#d54435" },
@@ -188,7 +196,7 @@ function buildStarterData() {
           ? "休載も履歴として残しておく。掲載順位平均からは除外する。"
           : `この回は${baseTags.join("・")}の指標であとから比較できそう。`,
         prediction: isBreak ? "次号で流れが再開するか確認。" : "次号でこの要素が継続するかを見る。",
-        score: isBreak ? 0 : 10 - Math.min(5, Math.floor(orderIndex / 4)) + ((issueIndex + seriesIndex) % 2),
+        score: isBreak ? 0 : clampScore(10 - Math.min(5, Math.floor(orderIndex / 4)) + ((issueIndex + seriesIndex) % 2)),
         logged: true,
         createdAt: "2026-05-31T00:00:00.000Z",
         updatedAt: "2026-05-31T00:00:00.000Z",
@@ -219,6 +227,9 @@ let analysisScope = "current";
 let analysisFocus = "";
 let analysisSelectedSeriesId = "";
 let analysisSelectedIssueId = "";
+let currentUnloggedOnly = false;
+let analysisPreset = "all";
+let thumbnailCrop = null;
 
 const els = {};
 
@@ -238,6 +249,7 @@ function cacheElements() {
     completionText: document.querySelector("#completionText"),
     completionBar: document.querySelector("#completionBar"),
     currentIssueCount: document.querySelector("#currentIssueCount"),
+    currentUnloggedToggle: document.querySelector("#currentUnloggedToggle"),
     previousIssueButton: document.querySelector("#previousIssueButton"),
     nextIssueButton: document.querySelector("#nextIssueButton"),
     openAddSeriesButton: document.querySelector("#openAddSeriesButton"),
@@ -259,9 +271,20 @@ function cacheElements() {
     backToSeriesButton: document.querySelector("#backToSeriesButton"),
     seriesStatusSelect: document.querySelector("#seriesStatusSelect"),
     saveSeriesStatusButton: document.querySelector("#saveSeriesStatusButton"),
+    seriesThumbnailInput: document.querySelector("#seriesThumbnailInput"),
+    clearSeriesThumbnailButton: document.querySelector("#clearSeriesThumbnailButton"),
+    thumbnailCropOverlay: document.querySelector("#thumbnailCropOverlay"),
+    thumbnailCropViewport: document.querySelector("#thumbnailCropViewport"),
+    thumbnailCropImage: document.querySelector("#thumbnailCropImage"),
+    thumbnailZoomInput: document.querySelector("#thumbnailZoomInput"),
+    cancelThumbnailCropButton: document.querySelector("#cancelThumbnailCropButton"),
+    resetThumbnailCropButton: document.querySelector("#resetThumbnailCropButton"),
+    applyThumbnailCropButton: document.querySelector("#applyThumbnailCropButton"),
     seriesDetailHero: document.querySelector("#seriesDetailHero"),
+    seriesRankChart: document.querySelector("#seriesRankChart"),
     seriesScoreTimeline: document.querySelector("#seriesScoreTimeline"),
     seriesTagBars: document.querySelector("#seriesTagBars"),
+    seriesTagHistory: document.querySelector("#seriesTagHistory"),
     seriesHistoryList: document.querySelector("#seriesHistoryList"),
     logSearchInput: document.querySelector("#logSearchInput"),
     seriesFilter: document.querySelector("#seriesFilter"),
@@ -269,11 +292,16 @@ function cacheElements() {
     chapterList: document.querySelector("#chapterList"),
     analysisScopeSelect: document.querySelector("#analysisScopeSelect"),
     analysisFocusSelect: document.querySelector("#analysisFocusSelect"),
+    analysisPresetSelect: document.querySelector("#analysisPresetSelect"),
     analysisRanking: document.querySelector("#analysisRanking"),
     orderComparisonChart: document.querySelector("#orderComparisonChart"),
     tagBars: document.querySelector("#tagBars"),
+    tagManager: document.querySelector("#tagManager"),
     createNextIssueButton: document.querySelector("#createNextIssueButton"),
+    issueStatusSelect: document.querySelector("#issueStatusSelect"),
     exportButton: document.querySelector("#exportButton"),
+    exportMarkdownButton: document.querySelector("#exportMarkdownButton"),
+    copyShareTextButton: document.querySelector("#copyShareTextButton"),
     quickExportButton: document.querySelector("#quickExportButton"),
     importInput: document.querySelector("#importInput"),
     resetButton: document.querySelector("#resetButton"),
@@ -306,6 +334,10 @@ function bindEvents() {
   });
 
   els.tocList.addEventListener("click", handleTocClick);
+  els.currentUnloggedToggle.addEventListener("click", () => {
+    currentUnloggedOnly = !currentUnloggedOnly;
+    renderToc();
+  });
   els.previousIssueButton.addEventListener("click", () => moveIssue(-1));
   els.nextIssueButton.addEventListener("click", () => moveIssue(1));
   els.openAddSeriesButton.addEventListener("click", () => {
@@ -325,6 +357,7 @@ function bindEvents() {
     if (event.target === els.logOverlay) cancelEdit();
   });
   els.scoreInput.addEventListener("input", updateScoreLabel);
+  els.tagPicker.addEventListener("change", updateScoreAvailabilityFromTags);
   els.addCustomTagButton.addEventListener("click", addCustomTag);
   els.customTagInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -344,6 +377,16 @@ function bindEvents() {
     renderScreen();
   });
   els.saveSeriesStatusButton.addEventListener("click", saveSeriesStatus);
+  els.seriesThumbnailInput.addEventListener("change", updateSeriesThumbnail);
+  els.clearSeriesThumbnailButton.addEventListener("click", clearSeriesThumbnail);
+  els.thumbnailCropOverlay.addEventListener("click", (event) => {
+    if (event.target === els.thumbnailCropOverlay) closeThumbnailCropper();
+  });
+  els.cancelThumbnailCropButton.addEventListener("click", closeThumbnailCropper);
+  els.resetThumbnailCropButton.addEventListener("click", resetThumbnailCrop);
+  els.applyThumbnailCropButton.addEventListener("click", applyThumbnailCrop);
+  els.thumbnailZoomInput.addEventListener("input", updateThumbnailZoom);
+  els.thumbnailCropViewport.addEventListener("pointerdown", startThumbnailDrag);
 
   els.logSearchInput.addEventListener("input", (event) => {
     logSearch = event.target.value.trim().toLowerCase();
@@ -371,13 +414,22 @@ function bindEvents() {
     analysisSelectedIssueId = "";
     renderAnalysis();
   });
+  els.analysisPresetSelect.addEventListener("change", (event) => {
+    analysisPreset = event.target.value;
+    renderAnalysis();
+  });
   els.analysisRanking.addEventListener("click", handleAnalysisRankingClick);
 
   els.createNextIssueButton.addEventListener("click", createNextIssue);
+  els.issueStatusSelect.addEventListener("change", updateIssueStatus);
   els.exportButton.addEventListener("click", exportData);
+  els.exportMarkdownButton.addEventListener("click", exportCurrentIssueMarkdown);
+  els.copyShareTextButton.addEventListener("click", copyShareText);
   els.quickExportButton.addEventListener("click", exportData);
   els.importInput.addEventListener("change", importData);
   els.resetButton.addEventListener("click", resetData);
+  els.tagManager.addEventListener("click", handleTagManagerClick);
+  els.tagManager.addEventListener("change", handleTagManagerChange);
 }
 
 function render() {
@@ -407,6 +459,7 @@ function renderIssueHero() {
   const issue = currentIssue();
   const latestIssue = sortedIssues()[0];
   const isLatest = issue.id === latestIssue.id;
+  const statusLabel = ISSUE_STATUSES[issue.status || "reading"] || "読書中";
   const issueOptions = sortedIssues().map((item) => {
     const selected = item.id === issue.id ? "selected" : "";
     return `<option value="${item.id}" ${selected}>${escapeHtml(issueShortLabel(item))}</option>`;
@@ -427,6 +480,7 @@ function renderIssueHero() {
   els.currentIssueHero.innerHTML = `
     <div class="issue-title">
       <span>${isLatest ? "最新号を編集中" : "過去号を編集中"}</span>
+      <span class="issue-status-badge">${escapeHtml(statusLabel)}</span>
       <h2>${escapeHtml(issueDisplayTitle(issue))}</h2>
       <p>${escapeHtml(issue.sourceNote || "この号の掲載順と読書ログを管理します。")}</p>
       <div class="issue-rail" aria-label="号の位置">${issueRail}</div>
@@ -506,7 +560,7 @@ function moveIssue(direction) {
 
 function renderTagPicker() {
   els.tagPicker.innerHTML = allTags().map((tag) => `
-    <label class="check-chip">
+    <label class="check-chip" style="--tag-color:${tagColor(tag)}">
       <input type="checkbox" name="tags" value="${escapeHtml(tag)}" />
       ${escapeHtml(tag)}
     </label>
@@ -514,7 +568,8 @@ function renderTagPicker() {
 }
 
 function allTags() {
-  return [...new Set([...TAGS, ...(state?.customTags || [])])];
+  const hidden = new Set(state?.hiddenTags || []);
+  return [...new Set([...TAGS.filter((tag) => !hidden.has(tag)), ...(state?.customTags || [])])];
 }
 
 function addCustomTag() {
@@ -536,7 +591,11 @@ function addCustomTag() {
 }
 
 function renderToc() {
-  const chapters = currentChapters().sort((a, b) => a.order - b.order);
+  const allChapters = currentChapters().sort((a, b) => a.order - b.order);
+  const chapters = currentUnloggedOnly ? allChapters.filter((chapter) => !chapter.logged) : allChapters;
+  els.currentUnloggedToggle.classList.toggle("is-active", currentUnloggedOnly);
+  els.currentUnloggedToggle.setAttribute("aria-pressed", String(currentUnloggedOnly));
+  els.currentUnloggedToggle.textContent = currentUnloggedOnly ? `未記録 ${chapters.length}本` : "未記録のみ";
   els.tocList.innerHTML = chapters.map((chapter) => {
     const series = findSeries(chapter.seriesId);
     const colorBadge = chapter.colorTag ? `<span class="badge color">${escapeHtml(chapter.colorTag)}</span>` : "";
@@ -547,17 +606,23 @@ function renderToc() {
       chapter.chapterNo ? `<span class="badge">#${escapeHtml(chapter.chapterNo)}</span>` : "",
       chapter.logged ? `<span class="badge done">記録済み</span>` : "",
     ].filter(Boolean).join("");
+    const scoreButtons = isHiatus(chapter)
+      ? `<span class="quick-score-disabled">休載中は評価なし</span>`
+      : Array.from({ length: 10 }, (_, index) => index + 1).map((score) => `
+      <button class="quick-score-button ${Number(chapter.score) === score ? "is-selected" : ""}" type="button" data-action="quick-score" data-id="${chapter.id}" data-score="${score}" aria-label="${escapeHtml(series.name)}を${score}点で記録">${score}</button>
+    `).join("");
     return `
       <article class="toc-item ${chapter.logged ? "is-logged" : ""} ${isHiatus(chapter) ? "is-hiatus" : ""} ${isInvalidAfterEnd(chapter) ? "is-invalid" : ""}" draggable="true" data-id="${chapter.id}">
         <div class="toc-order">${chapter.order}</div>
         <div class="toc-main">
           <strong>${escapeHtml(series.name)} <span class="avg-chip">${escapeHtml(formatRecentOrder(avgOrder))}</span> ${colorBadge}${statusBadge}${hiatusBadge}</strong>
           <span>${escapeHtml(series.author || "作者未設定")}</span>
+          <div class="quick-score" aria-label="クイック評価">${scoreButtons}</div>
         </div>
         <div class="toc-badges">${badges}</div>
       </article>
     `;
-  }).join("");
+  }).join("") || `<div class="empty-state">${currentUnloggedOnly ? "この号はすべて記録済みです" : "掲載作品がありません"}</div>`;
 }
 
 function renderSeriesList() {
@@ -605,6 +670,7 @@ function renderChapterList() {
 
 function renderAnalysis() {
   els.analysisScopeSelect.value = analysisScope;
+  els.analysisPresetSelect.value = analysisPreset;
   const seriesRows = analysisSeries();
   if (analysisFocus && !seriesRows.some((series) => series.id === analysisFocus)) {
     analysisFocus = "";
@@ -619,7 +685,8 @@ function renderAnalysis() {
   ].join("");
   els.analysisFocusSelect.value = analysisFocus;
 
-  const displaySeries = analysisFocus ? seriesRows.filter((series) => series.id === analysisFocus) : seriesRows;
+  const displayBase = analysisFocus ? seriesRows.filter((series) => series.id === analysisFocus) : seriesRows;
+  const displaySeries = applyAnalysisPreset(displayBase);
   if (analysisSelectedSeriesId && !displaySeries.some((series) => series.id === analysisSelectedSeriesId)) {
     analysisSelectedSeriesId = "";
     analysisSelectedIssueId = "";
@@ -633,6 +700,37 @@ function renderAnalysis() {
   els.tagBars.innerHTML = tagRows.length
     ? tagRows.map(([tag, count], index) => barItem(tag, count, Math.max(...tagRows.map((row) => row[1])), COLORS[index % COLORS.length])).join("")
     : `<div class="empty-state">対象範囲にタグ付きの記録がまだありません</div>`;
+}
+
+function applyAnalysisPreset(seriesRows) {
+  if (analysisFocus) return seriesRows;
+  if (analysisPreset === "top5") {
+    return [...seriesRows]
+      .map((series) => ({ series, stats: orderStats(series.id) }))
+      .filter((row) => row.stats.count > 0)
+      .sort((a, b) => a.stats.avg - b.stats.avg)
+      .slice(0, 5)
+      .map((row) => row.series);
+  }
+  if (analysisPreset === "movers") {
+    const movers = [...seriesRows]
+      .map((series) => ({ series, stats: orderStats(series.id) }))
+      .filter((row) => row.stats.count > 1 && row.stats.trend !== 0)
+      .sort((a, b) => Math.abs(b.stats.trend) - Math.abs(a.stats.trend) || a.stats.avg - b.stats.avg)
+      .slice(0, 8)
+      .map((row) => row.series);
+    return movers.length ? movers : seriesRows;
+  }
+  if (analysisPreset === "neighbors" && analysisSelectedSeriesId) {
+    const selectedStats = orderStats(analysisSelectedSeriesId);
+    if (!selectedStats.latest) return seriesRows;
+    return [...seriesRows]
+      .map((series) => ({ series, stats: orderStats(series.id) }))
+      .filter((row) => row.stats.latest && Math.abs(row.stats.latest - selectedStats.latest) <= 4)
+      .sort((a, b) => a.stats.latest - b.stats.latest)
+      .map((row) => row.series);
+  }
+  return seriesRows;
 }
 
 function analysisSeries() {
@@ -855,7 +953,7 @@ function renderAnalysisInspector(selection) {
 
   const { series, issue, chapter, stats } = selection;
   const tags = chapter?.tags?.length
-    ? chapter.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")
+    ? chapter.tags.map((tag) => `<span class="tag" style="--tag-color:${tagColor(tag)}">${escapeHtml(tag)}</span>`).join("")
     : `<span class="tag">未分類</span>`;
   return `
     <section class="analysis-inspector" style="--series-color:${series.color}">
@@ -1040,8 +1138,10 @@ function parseTooltipTags(value) {
 function renderSeriesDetail() {
   if (!focusedSeriesId) {
     els.seriesDetailHero.innerHTML = "";
+    els.seriesRankChart.innerHTML = "";
     els.seriesScoreTimeline.innerHTML = "";
     els.seriesTagBars.innerHTML = "";
+    els.seriesTagHistory.innerHTML = "";
     els.seriesHistoryList.innerHTML = "";
     return;
   }
@@ -1052,9 +1152,10 @@ function renderSeriesDetail() {
   const logged = chapters.filter((chapter) => chapter.logged);
   const scores = logged.map((chapter) => Number(chapter.score)).filter((score) => score > 0);
   const avg = averageOrZero(scores);
+  const thumbnail = series.thumbnail ? `<img src="${series.thumbnail}" alt="" />` : "";
 
   els.seriesDetailHero.innerHTML = `
-    <div class="series-detail-mark" style="background:${series.color}"></div>
+    <div class="series-detail-mark ${series.thumbnail ? "has-thumbnail" : ""}" style="background:${series.color}">${thumbnail}</div>
     <div>
       <p>Series focus</p>
       <h2>${escapeHtml(series.name)}</h2>
@@ -1062,13 +1163,17 @@ function renderSeriesDetail() {
     </div>
   `;
   els.seriesStatusSelect.value = series.status || "連載中";
+  els.seriesThumbnailInput.value = "";
+  renderSeriesRankChart(series, chapters);
 
   els.seriesScoreTimeline.innerHTML = chapters.map((chapter) => {
     const issue = findIssue(chapter.issueId);
     const score = Number(chapter.score) || 0;
     const height = score ? Math.max(10, score * 9) : 8;
+    const scoreLabel = score ? `${score}` : "-";
     return `
       <div class="timeline-point" title="${escapeHtml(issueShortLabel(issue))}">
+        <strong>${escapeHtml(scoreLabel)}</strong>
         <div class="timeline-bar" style="height:${height}%; background:${series.color}"></div>
         <span>${escapeHtml(issue.number)}</span>
       </div>
@@ -1077,8 +1182,20 @@ function renderSeriesDetail() {
 
   const tagRows = countTags(logged);
   els.seriesTagBars.innerHTML = tagRows.length
-    ? tagRows.map(([tag, count], index) => barItem(tag, count, Math.max(...tagRows.map((row) => row[1])), COLORS[index % COLORS.length])).join("")
+    ? tagRows.map(([tag, count]) => barItem(tag, count, Math.max(...tagRows.map((row) => row[1])), tagColor(tag))).join("")
     : `<div class="empty-state">タグ付きの記録がまだありません</div>`;
+  els.seriesTagHistory.innerHTML = chapters.map((chapter) => {
+    const issue = findIssue(chapter.issueId);
+    const tags = chapter.tags?.length
+      ? chapter.tags.map((tag) => `<span class="tag" style="--tag-color:${tagColor(tag)}">${escapeHtml(tag)}</span>`).join("")
+      : `<span class="tag">未分類</span>`;
+    return `
+      <div class="tag-history-row">
+        <strong>${escapeHtml(issueNumberDisplay(issue))}号</strong>
+        <div>${tags}</div>
+      </div>
+    `;
+  }).join("");
 
   els.seriesHistoryList.innerHTML = chapters
     .slice()
@@ -1087,9 +1204,71 @@ function renderSeriesDetail() {
     .join("") || `<div class="empty-state">まだログがありません</div>`;
 }
 
+function renderSeriesRankChart(series, chapters) {
+  const rows = chapters.filter((chapter) => !isHiatus(chapter));
+  if (!rows.length) {
+    els.seriesRankChart.innerHTML = `<div class="empty-state">掲載順データがまだありません</div>`;
+    return;
+  }
+  const maxOrder = Math.max(5, ...state.chapters.map((chapter) => Number(chapter.order) || 1));
+  const width = 760;
+  const height = 210;
+  const pad = { top: 24, right: 22, bottom: 34, left: 34 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const xFor = (index) => pad.left + (rows.length === 1 ? plotWidth / 2 : (plotWidth / (rows.length - 1)) * index);
+  const yFor = (order) => pad.top + ((Number(order) - 1) / Math.max(1, maxOrder - 1)) * plotHeight;
+  const points = rows.map((chapter, index) => ({ x: xFor(index), y: yFor(chapter.order), chapter }));
+  const path = smoothRankPath(points);
+  const issueLabels = rows.map((chapter, index) => {
+    const issue = findIssue(chapter.issueId);
+    return `<text x="${xFor(index)}" y="${height - 10}" class="rank-issue-label">${escapeHtml(issueNumberDisplay(issue))}</text>`;
+  }).join("");
+  const dots = points.map((point) => {
+    return `
+      <g>
+        <circle cx="${point.x}" cy="${point.y}" r="6" fill="${series.color}" />
+        <text x="${point.x}" y="${point.y - 10}" class="series-rank-order">${point.chapter.order}位</text>
+      </g>
+    `;
+  }).join("");
+  const tagColumns = rows.map((chapter) => {
+    const issue = findIssue(chapter.issueId);
+    const tags = chapter.tags?.length
+      ? chapter.tags.map((tag) => `<span class="tag" style="--tag-color:${tagColor(tag)}">${escapeHtml(tag)}</span>`).join("")
+      : `<span class="tag">未分類</span>`;
+    return `
+      <article class="series-rank-tag-column">
+        <strong>${escapeHtml(issueNumberDisplay(issue))}号</strong>
+        <span>${chapter.order}位</span>
+        <div>${tags}</div>
+      </article>
+    `;
+  }).join("");
+  els.seriesRankChart.innerHTML = `
+    <div class="series-rank-scroll">
+      <svg class="series-rank-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(series.name)}の掲載順推移">
+        <line x1="${pad.left}" y1="${yFor(1)}" x2="${width - pad.right}" y2="${yFor(1)}" class="rank-grid-line" />
+        <line x1="${pad.left}" y1="${yFor(10)}" x2="${width - pad.right}" y2="${yFor(10)}" class="rank-grid-line" />
+        <line x1="${pad.left}" y1="${yFor(maxOrder)}" x2="${width - pad.right}" y2="${yFor(maxOrder)}" class="rank-grid-line" />
+        <text x="${pad.left - 16}" y="${yFor(1) + 4}" class="rank-axis-label">1</text>
+        <text x="${pad.left - 16}" y="${yFor(10) + 4}" class="rank-axis-label">10</text>
+        <text x="${pad.left - 16}" y="${yFor(maxOrder) + 4}" class="rank-axis-label">${maxOrder}</text>
+        <path d="${path}" class="series-rank-path" stroke="${series.color}" />
+        ${dots}
+        ${issueLabels}
+      </svg>
+      <div class="series-rank-tag-strip" style="grid-template-columns: repeat(${rows.length}, minmax(116px, 1fr));">
+        ${tagColumns}
+      </div>
+    </div>
+  `;
+}
+
 function renderSettings() {
   const issue = currentIssue();
   const issueCount = state.issues.length;
+  els.issueStatusSelect.value = issue.status || "reading";
   els.issueNote.innerHTML = `
     <p>現在の号: ${escapeHtml(issueDisplayTitle(issue))}。次号を作ると、現在の掲載作品がそのままコピーされ、話数は前回の入力値 +1 が初期値になります。</p>
     <p>登録済みの号: ${issueCount}件</p>
@@ -1098,13 +1277,98 @@ function renderSettings() {
     <p>${escapeHtml(state.issues[0]?.sourceNote || "")}</p>
     <p>公開アプリ化するときは、公式画像や誌面本文を保存せず、ユーザー自身の読書ログとして扱う設計にします。</p>
   `;
+  renderTagManager();
+}
+
+function renderTagManager() {
+  const rows = allTags().map((tag) => {
+    const locked = LOCKED_TAGS.includes(tag);
+    const count = state.chapters.filter((chapter) => (chapter.tags || []).includes(tag)).length;
+    return `
+      <article class="tag-manager-row ${locked ? "is-locked" : ""}">
+        <div>
+          <strong>${escapeHtml(tag)}</strong>
+          <span>${count}件で使用${locked ? " ・ システムタグ" : ""}</span>
+        </div>
+        <input class="tag-color-input" type="color" value="${escapeHtml(tagColor(tag))}" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)}の色" />
+        <div class="tag-manager-actions">
+          <button class="small-button" type="button" data-action="rename-tag" data-tag="${escapeHtml(tag)}" ${locked ? "disabled" : ""}>リネーム</button>
+          <button class="small-button danger-mini" type="button" data-action="delete-tag" data-tag="${escapeHtml(tag)}" ${locked ? "disabled" : ""}>削除</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+  els.tagManager.innerHTML = rows || `<div class="empty-state">管理できるタグがありません</div>`;
+}
+
+function handleTagManagerClick(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const tag = button.dataset.tag;
+  if (!tag || LOCKED_TAGS.includes(tag)) return;
+  if (button.dataset.action === "rename-tag") renameTag(tag);
+  if (button.dataset.action === "delete-tag") deleteTag(tag);
+}
+
+function handleTagManagerChange(event) {
+  const input = event.target.closest(".tag-color-input");
+  if (!input) return;
+  state.tagColors ||= {};
+  state.tagColors[input.dataset.tag] = input.value;
+  persist();
+  render();
+}
+
+function renameTag(oldTag) {
+  const nextTag = prompt(`「${oldTag}」の新しい名前`, oldTag)?.trim();
+  if (!nextTag || nextTag === oldTag) return;
+  if (allTags().includes(nextTag)) {
+    alert("同じ名前のタグがすでにあります。");
+    return;
+  }
+  state.customTags = (state.customTags || []).filter((tag) => tag !== oldTag);
+  state.hiddenTags ||= [];
+  state.tagColors ||= {};
+  if (TAGS.includes(oldTag) && !state.hiddenTags.includes(oldTag)) {
+    state.hiddenTags.push(oldTag);
+  }
+  if (state.tagColors[oldTag] && !state.tagColors[nextTag]) {
+    state.tagColors[nextTag] = state.tagColors[oldTag];
+  }
+  delete state.tagColors[oldTag];
+  state.customTags.push(nextTag);
+  state.chapters.forEach((chapter) => {
+    chapter.tags = (chapter.tags || []).map((tag) => tag === oldTag ? nextTag : tag);
+  });
+  if (tagFilter === oldTag) tagFilter = nextTag;
+  persist();
+  renderTagPicker();
+  render();
+}
+
+function deleteTag(tag) {
+  if (!confirm(`「${tag}」をタグ一覧と全ログから削除しますか？`)) return;
+  state.customTags = (state.customTags || []).filter((item) => item !== tag);
+  state.hiddenTags ||= [];
+  state.tagColors ||= {};
+  delete state.tagColors[tag];
+  if (TAGS.includes(tag) && !state.hiddenTags.includes(tag)) {
+    state.hiddenTags.push(tag);
+  }
+  state.chapters.forEach((chapter) => {
+    chapter.tags = (chapter.tags || []).filter((item) => item !== tag);
+  });
+  if (tagFilter === tag) tagFilter = "";
+  persist();
+  renderTagPicker();
+  render();
 }
 
 function chapterCard(chapter, showIssue) {
   const series = findSeries(chapter.seriesId);
   const issue = findIssue(chapter.issueId);
   const tags = chapter.tags.length
-    ? chapter.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")
+    ? chapter.tags.map((tag) => `<span class="tag" style="--tag-color:${tagColor(tag)}">${escapeHtml(tag)}</span>`).join("")
     : `<span class="tag">未分類</span>`;
   return `
     <article class="chapter-card ${chapter.logged ? "is-logged" : ""} ${isHiatus(chapter) ? "is-hiatus" : ""} ${isInvalidAfterEnd(chapter) ? "is-invalid" : ""}" style="--series-color: ${series.color}">
@@ -1187,12 +1451,162 @@ function saveSeriesStatus() {
   render();
 }
 
+function updateSeriesThumbnail(event) {
+  const file = event.target.files?.[0];
+  if (!file || !focusedSeriesId) return;
+  if (!file.type.startsWith("image/")) {
+    alert("画像ファイルを選んでください。");
+    event.target.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    openThumbnailCropper(String(reader.result || ""));
+  });
+  reader.readAsDataURL(file);
+}
+
+function openThumbnailCropper(src) {
+  const image = new Image();
+  image.addEventListener("load", () => {
+    const viewportSize = els.thumbnailCropViewport.clientWidth || 280;
+    const baseScale = Math.max(viewportSize / image.naturalWidth, viewportSize / image.naturalHeight);
+    thumbnailCrop = {
+      src,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+      viewportSize,
+      baseScale,
+      zoom: 1,
+      offsetX: 0,
+      offsetY: 0,
+      dragging: false,
+      dragStartX: 0,
+      dragStartY: 0,
+      startOffsetX: 0,
+      startOffsetY: 0,
+    };
+    els.thumbnailCropImage.src = src;
+    els.thumbnailZoomInput.value = "1";
+    els.thumbnailCropOverlay.hidden = false;
+    document.body.classList.add("modal-open");
+    renderThumbnailCrop();
+  });
+  image.src = src;
+}
+
+function closeThumbnailCropper() {
+  thumbnailCrop = null;
+  els.thumbnailCropOverlay.hidden = true;
+  els.thumbnailCropImage.removeAttribute("src");
+  els.seriesThumbnailInput.value = "";
+  if (els.logOverlay.hidden) document.body.classList.remove("modal-open");
+}
+
+function resetThumbnailCrop() {
+  if (!thumbnailCrop) return;
+  thumbnailCrop.zoom = 1;
+  thumbnailCrop.offsetX = 0;
+  thumbnailCrop.offsetY = 0;
+  els.thumbnailZoomInput.value = "1";
+  renderThumbnailCrop();
+}
+
+function updateThumbnailZoom() {
+  if (!thumbnailCrop) return;
+  thumbnailCrop.zoom = Number(els.thumbnailZoomInput.value) || 1;
+  clampThumbnailCrop();
+  renderThumbnailCrop();
+}
+
+function startThumbnailDrag(event) {
+  if (!thumbnailCrop) return;
+  thumbnailCrop.dragging = true;
+  thumbnailCrop.dragStartX = event.clientX;
+  thumbnailCrop.dragStartY = event.clientY;
+  thumbnailCrop.startOffsetX = thumbnailCrop.offsetX;
+  thumbnailCrop.startOffsetY = thumbnailCrop.offsetY;
+  els.thumbnailCropViewport.setPointerCapture(event.pointerId);
+  els.thumbnailCropViewport.addEventListener("pointermove", dragThumbnailCrop);
+  els.thumbnailCropViewport.addEventListener("pointerup", endThumbnailDrag, { once: true });
+  els.thumbnailCropViewport.addEventListener("pointercancel", endThumbnailDrag, { once: true });
+}
+
+function dragThumbnailCrop(event) {
+  if (!thumbnailCrop?.dragging) return;
+  thumbnailCrop.offsetX = thumbnailCrop.startOffsetX + event.clientX - thumbnailCrop.dragStartX;
+  thumbnailCrop.offsetY = thumbnailCrop.startOffsetY + event.clientY - thumbnailCrop.dragStartY;
+  clampThumbnailCrop();
+  renderThumbnailCrop();
+}
+
+function endThumbnailDrag() {
+  if (!thumbnailCrop) return;
+  thumbnailCrop.dragging = false;
+  els.thumbnailCropViewport.removeEventListener("pointermove", dragThumbnailCrop);
+}
+
+function clampThumbnailCrop() {
+  const renderedWidth = thumbnailCrop.naturalWidth * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  const renderedHeight = thumbnailCrop.naturalHeight * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  const maxX = Math.max(0, (renderedWidth - thumbnailCrop.viewportSize) / 2);
+  const maxY = Math.max(0, (renderedHeight - thumbnailCrop.viewportSize) / 2);
+  thumbnailCrop.offsetX = Math.max(-maxX, Math.min(maxX, thumbnailCrop.offsetX));
+  thumbnailCrop.offsetY = Math.max(-maxY, Math.min(maxY, thumbnailCrop.offsetY));
+}
+
+function renderThumbnailCrop() {
+  if (!thumbnailCrop) return;
+  const renderedWidth = thumbnailCrop.naturalWidth * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  const renderedHeight = thumbnailCrop.naturalHeight * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  els.thumbnailCropImage.style.width = `${renderedWidth}px`;
+  els.thumbnailCropImage.style.height = `${renderedHeight}px`;
+  els.thumbnailCropImage.style.transform = `translate(calc(-50% + ${thumbnailCrop.offsetX}px), calc(-50% + ${thumbnailCrop.offsetY}px))`;
+}
+
+function applyThumbnailCrop() {
+  if (!thumbnailCrop || !focusedSeriesId) return;
+  const renderedWidth = thumbnailCrop.naturalWidth * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  const renderedHeight = thumbnailCrop.naturalHeight * thumbnailCrop.baseScale * thumbnailCrop.zoom;
+  const left = (thumbnailCrop.viewportSize - renderedWidth) / 2 + thumbnailCrop.offsetX;
+  const top = (thumbnailCrop.viewportSize - renderedHeight) / 2 + thumbnailCrop.offsetY;
+  const sourceX = Math.max(0, (-left / renderedWidth) * thumbnailCrop.naturalWidth);
+  const sourceY = Math.max(0, (-top / renderedHeight) * thumbnailCrop.naturalHeight);
+  const sourceWidth = Math.min(thumbnailCrop.naturalWidth - sourceX, (thumbnailCrop.viewportSize / renderedWidth) * thumbnailCrop.naturalWidth);
+  const sourceHeight = Math.min(thumbnailCrop.naturalHeight - sourceY, (thumbnailCrop.viewportSize / renderedHeight) * thumbnailCrop.naturalHeight);
+  const image = new Image();
+  image.addEventListener("load", () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 512;
+    canvas.height = 512;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+    const series = findSeries(focusedSeriesId);
+    series.thumbnail = canvas.toDataURL("image/jpeg", 0.9);
+    series.updatedAt = new Date().toISOString();
+    persist();
+    closeThumbnailCropper();
+    render();
+  });
+  image.src = thumbnailCrop.src;
+}
+
+function clearSeriesThumbnail() {
+  if (!focusedSeriesId) return;
+  const series = findSeries(focusedSeriesId);
+  series.thumbnail = "";
+  series.updatedAt = new Date().toISOString();
+  persist();
+  render();
+}
+
 function saveChapter(event) {
   event.preventDefault();
   const form = new FormData(els.chapterForm);
   const now = new Date().toISOString();
   const seriesId = String(form.get("seriesId"));
   const selectedTags = form.getAll("tags");
+  const isHiatusLog = selectedTags.includes("休載");
   const selectedColorTag = selectedTags.includes("センターカラー")
     ? "センターカラー"
     : selectedTags.includes("巻頭カラー")
@@ -1214,7 +1628,7 @@ function saveChapter(event) {
     reaction: String(form.get("reaction") || "").trim(),
     myThought: String(form.get("myThought") || "").trim(),
     prediction: String(form.get("prediction") || "").trim(),
-    score: Number(form.get("score")) || 0,
+    score: isHiatusLog ? 0 : clampScore(form.get("score")),
     logged: true,
     updatedAt: now,
   };
@@ -1237,10 +1651,27 @@ function saveChapter(event) {
 
 function handleTocClick(event) {
   if (suppressNextClick) return;
+  const quickScoreButton = event.target.closest("button[data-action='quick-score']");
+  if (quickScoreButton) {
+    quickScoreChapter(quickScoreButton.dataset.id, Number(quickScoreButton.dataset.score));
+    return;
+  }
   const item = event.target.closest(".toc-item");
   if (!item) return;
   const chapter = state.chapters.find((row) => row.id === item.dataset.id);
   if (chapter) startEdit(chapter);
+}
+
+function quickScoreChapter(chapterId, score) {
+  const chapter = state.chapters.find((item) => item.id === chapterId);
+  if (!chapter || !score || isHiatus(chapter)) return;
+  chapter.score = clampScore(score);
+  chapter.logged = true;
+  chapter.mood = chapter.mood || "quiet";
+  chapter.summary ||= "評価のみ記録";
+  chapter.updatedAt = new Date().toISOString();
+  persist();
+  render();
 }
 
 function handleChapterClick(event) {
@@ -1259,6 +1690,7 @@ function handleSeriesClick(event) {
 }
 
 function startEdit(chapter) {
+  const hiatus = isHiatus(chapter);
   editingChapterId = chapter.id;
   els.logFormTitle.textContent = chapter.logged ? "掲載話を編集" : "掲載話を記録";
   els.saveChapterButton.textContent = chapter.logged ? "更新する" : "記録する";
@@ -1267,7 +1699,8 @@ function startEdit(chapter) {
   els.chapterForm.elements.title.value = chapter.title || "";
   els.chapterForm.elements.summary.value = chapter.summary || "";
   els.chapterForm.elements.mood.value = chapter.mood || "quiet";
-  els.chapterForm.elements.score.value = chapter.score || 7;
+  els.chapterForm.elements.score.value = hiatus ? 1 : chapter.score || 7;
+  els.chapterForm.elements.score.disabled = hiatus;
   els.chapterForm.elements.reaction.value = chapter.reaction || "";
   els.chapterForm.elements.myThought.value = chapter.myThought || "";
   els.chapterForm.elements.prediction.value = chapter.prediction || "";
@@ -1279,6 +1712,13 @@ function startEdit(chapter) {
   document.body.classList.add("modal-open");
 }
 
+function updateScoreAvailabilityFromTags() {
+  const selectedTags = [...els.chapterForm.querySelectorAll("input[name='tags']:checked")].map((input) => input.value);
+  const hiatus = selectedTags.includes("休載");
+  els.chapterForm.elements.score.disabled = hiatus;
+  updateScoreLabel();
+}
+
 function cancelEdit() {
   editingChapterId = null;
   els.chapterForm.reset();
@@ -1287,13 +1727,14 @@ function cancelEdit() {
   });
   els.logFormTitle.textContent = "掲載話を記録";
   els.saveChapterButton.textContent = "記録する";
+  els.chapterForm.elements.score.disabled = false;
   updateScoreLabel();
   els.logOverlay.hidden = true;
   document.body.classList.remove("modal-open");
 }
 
 function updateScoreLabel() {
-  els.scoreValue.textContent = `${els.scoreInput.value}/10`;
+  els.scoreValue.textContent = els.scoreInput.disabled ? "休載" : `${els.scoreInput.value}/10`;
 }
 
 function createNextIssue() {
@@ -1416,6 +1857,112 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+function exportCurrentIssueMarkdown() {
+  const issue = currentIssue();
+  const chapters = currentChapters().sort((a, b) => a.order - b.order);
+  const lines = [
+    `# ${issueDisplayTitle(issue)}`,
+    "",
+    `- 記録日: ${new Date().toISOString().slice(0, 10)}`,
+    `- 掲載作品: ${chapters.length}`,
+    `- 記録済み: ${chapters.filter((chapter) => chapter.logged).length}/${chapters.length}`,
+    "",
+    "## 掲載順",
+    "",
+    "| 順位 | 作品 | 話数 | 評価 | タグ | 起きたこと |",
+    "|---:|---|---:|---:|---|---|",
+    ...chapters.map((chapter) => {
+      const series = findSeries(chapter.seriesId);
+      return [
+        chapter.order,
+        escapeMarkdownCell(series.name),
+        chapter.chapterNo || "",
+        chapter.score ? `${chapter.score}/10` : "",
+        escapeMarkdownCell((chapter.tags || []).join(", ")),
+        escapeMarkdownCell(chapter.summary || ""),
+      ].join(" | ");
+    }).map((row) => `| ${row} |`),
+    "",
+    "## メモ",
+    "",
+    ...chapters
+      .filter((chapter) => chapter.myThought || chapter.reaction || chapter.prediction)
+      .map((chapter) => {
+        const series = findSeries(chapter.seriesId);
+        return [
+          `### ${chapter.order}. ${series.name}`,
+          chapter.myThought ? `- 自分の感想: ${chapter.myThought}` : "",
+          chapter.reaction ? `- 世間の反応: ${chapter.reaction}` : "",
+          chapter.prediction ? `- 次回予想: ${chapter.prediction}` : "",
+          "",
+        ].filter(Boolean).join("\n");
+      }),
+  ].join("\n");
+  const blob = new Blob([lines], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `manga-issue-log-${issue.year}-${issueNumberDisplay(issue)}.md`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copyShareText() {
+  const text = buildIssueShareText();
+  try {
+    await navigator.clipboard.writeText(text);
+    flashButtonLabel(els.copyShareTextButton, "コピー済み");
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+    flashButtonLabel(els.copyShareTextButton, "コピー済み");
+  }
+}
+
+function buildIssueShareText() {
+  const issue = currentIssue();
+  const chapters = currentChapters().sort((a, b) => a.order - b.order);
+  const logged = chapters.filter((chapter) => chapter.logged);
+  const topRated = logged
+    .filter((chapter) => Number(chapter.score) > 0)
+    .sort((a, b) => Number(b.score) - Number(a.score) || a.order - b.order)
+    .slice(0, 3);
+  const topRatedLines = topRated.map((chapter, index) => {
+    const series = findSeries(chapter.seriesId);
+    return `${index + 1}. ${series.name} ${chapter.score}/10`;
+  });
+  const tagSummary = countTags(logged)
+    .slice(0, 4)
+    .map(([tag]) => `#${tag.replace(/\s/g, "")}`)
+    .join(" ");
+  return [
+    `${issueShortLabel(issue)} 読書ログ`,
+    `記録済み ${logged.length}/${chapters.length}本`,
+    topRatedLines.length ? `高評価: ${topRatedLines.join(" / ")}` : "",
+    tagSummary,
+    "Manga Issue Log",
+  ].filter(Boolean).join("\n");
+}
+
+function flashButtonLabel(button, label) {
+  const previous = button.textContent;
+  button.textContent = label;
+  setTimeout(() => {
+    button.textContent = previous;
+  }, 1200);
+}
+
+function escapeMarkdownCell(value) {
+  return String(value || "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
 function importData(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -1437,7 +1984,7 @@ function importData(event) {
 
 function resetData() {
   if (!confirm("現在のローカルデータを消して、画像から作った仮データに戻しますか？")) return;
-  state = structuredClone(starterData);
+  state = normalizeState(structuredClone(starterData));
   persist();
   cancelEdit();
   focusedSeriesId = "";
@@ -1452,7 +1999,7 @@ function loadState() {
   } catch {
     localStorage.removeItem(STORE_KEY);
   }
-  const data = structuredClone(starterData);
+  const data = normalizeState(structuredClone(starterData));
   localStorage.setItem(STORE_KEY, JSON.stringify(data));
   return data;
 }
@@ -1463,14 +2010,18 @@ function normalizeState(data) {
   }
   data.currentIssueId ||= data.issues[0]?.id;
   data.customTags ||= [];
+  data.hiddenTags ||= [];
+  data.tagColors ||= {};
   data.issues = data.issues.map((issue) => ({
     numberEnd: "",
     merged: false,
+    status: "reading",
     ...issue,
   }));
   data.series = data.series.map((series) => ({
     status: "連載中",
     endedIssueId: "",
+    thumbnail: "",
     ...series,
   }));
   data.chapters = data.chapters.map((chapter, index) => ({
@@ -1491,6 +2042,9 @@ function normalizeState(data) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...chapter,
+  })).map((chapter) => ({
+    ...chapter,
+    score: (chapter.tags || []).includes("休載") ? 0 : clampScore(chapter.score),
   }));
   data.issues.forEach((issue) => {
     const issueChapters = data.chapters.filter((chapter) => chapter.issueId === issue.id).sort((a, b) => a.order - b.order);
@@ -1682,6 +2236,20 @@ function updateMergedIssue(merged) {
   render();
 }
 
+function updateIssueStatus() {
+  const issue = currentIssue();
+  issue.status = els.issueStatusSelect.value;
+  persist();
+  render();
+}
+
+function tagColor(tag) {
+  state.tagColors ||= {};
+  if (state.tagColors[tag]) return state.tagColors[tag];
+  const index = Math.abs([...String(tag)].reduce((sum, char) => sum + char.charCodeAt(0), 0)) % TAG_COLORS.length;
+  return TAG_COLORS[index];
+}
+
 function uniqueIssueId(year, number) {
   let id = `issue-${year}-${number}`;
   let suffix = 2;
@@ -1748,6 +2316,12 @@ function average(values) {
 
 function averageOrZero(values) {
   return values.length ? average(values) : 0;
+}
+
+function clampScore(value) {
+  const score = Number(value) || 0;
+  if (score <= 0) return 0;
+  return Math.max(1, Math.min(10, Math.round(score)));
 }
 
 function escapeHtml(value) {
